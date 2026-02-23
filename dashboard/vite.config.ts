@@ -9,11 +9,10 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/api': {
+      '/agent': {
         target: apiTarget,
         changeOrigin: true,
         secure: true,
-        rewrite: (path) => path.replace(/^\/api/, '/agent'),
       },
     },
   },

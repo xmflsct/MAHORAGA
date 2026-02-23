@@ -49,24 +49,6 @@ export default {
       );
     }
 
-    if (url.pathname === "/") {
-      return new Response(
-        JSON.stringify({
-          name: "mahoraga",
-          version: "0.3.0",
-          description: "Autonomous LLM-powered trading agent on Cloudflare Workers",
-          endpoints: {
-            health: "/health",
-            mcp: "/mcp (auth required)",
-            agent: "/agent/* (auth required)",
-          },
-        }),
-        {
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-    }
-
     if (url.pathname.startsWith("/mcp")) {
       if (!isAuthorized(request, env)) {
         return unauthorizedResponse();

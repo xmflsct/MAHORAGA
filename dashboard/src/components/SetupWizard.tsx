@@ -27,7 +27,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     setError(null)
 
     try {
-      const res = await fetch('/api/setup/keys', {
+      const res = await fetch('/agent/setup/keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
