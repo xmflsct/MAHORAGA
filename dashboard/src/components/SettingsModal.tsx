@@ -280,6 +280,7 @@ export function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
                       </optgroup>
                       <optgroup label="Google AI Studio">
                         <option value="google-ai-studio/gemini-2.5-flash">gemini-2.5-flash</option>
+                        <option value="google-ai-studio/gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
                       </optgroup>
                       <optgroup label="DeepSeek">
                         <option value="deepseek/deepseek-chat">deepseek-chat</option>
@@ -346,6 +347,7 @@ export function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
                       </optgroup>
                       <optgroup label="Google AI Studio">
                         <option value="google-ai-studio/gemini-2.5-pro">gemini-2.5-pro</option>
+                        <option value="google-ai-studio/gemini-3-pro-preview">gemini-3-pro-preview</option>
                       </optgroup>
                       <optgroup label="Grok">
                         <option value="grok/grok-4.1-fast-reasoning">grok-4.1-fast-reasoning</option>
