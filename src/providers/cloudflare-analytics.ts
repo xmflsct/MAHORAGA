@@ -55,7 +55,7 @@ interface LogsResponse {
  */
 export async function fetchGatewayCosts(
   env: Env,
-  limit = 100,
+  limit = 50,
 ): Promise<GatewayCosts | null> {
   const token = env.CLOUDFLARE_API_TOKEN;
   const accountId = env.CLOUDFLARE_AI_GATEWAY_ACCOUNT_ID;
