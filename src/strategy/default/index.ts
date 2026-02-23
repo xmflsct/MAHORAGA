@@ -15,7 +15,9 @@
 
 import type { Strategy } from "../types";
 import { DEFAULT_CONFIG } from "./config";
+import { alpacaNewsGatherer } from "./gatherers/alpaca-news";
 import { cryptoGatherer } from "./gatherers/crypto";
+import { openInsiderGatherer } from "./gatherers/openinsider";
 import { redditGatherer } from "./gatherers/reddit";
 import { secGatherer } from "./gatherers/sec";
 import { stocktwitsGatherer } from "./gatherers/stocktwits";
@@ -30,7 +32,7 @@ export const defaultStrategy: Strategy = {
   configSchema: null,
   defaultConfig: DEFAULT_CONFIG,
 
-  gatherers: [stocktwitsGatherer, redditGatherer, cryptoGatherer, secGatherer],
+  gatherers: [stocktwitsGatherer, redditGatherer, cryptoGatherer, secGatherer, alpacaNewsGatherer, openInsiderGatherer],
 
   prompts: {
     researchSignal: researchSignalPrompt,

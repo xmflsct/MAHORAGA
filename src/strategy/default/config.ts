@@ -22,6 +22,8 @@ export const SOURCE_CONFIG = {
     sec_8k: 0.95,
     sec_4: 0.9,
     sec_13f: 0.7,
+    alpaca_news: 0.85,
+    openinsider: 0.9,
   },
   flairMultipliers: {
     DD: 1.5,
