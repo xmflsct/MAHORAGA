@@ -7,39 +7,55 @@ export interface GatewayCosts {
   tokens_out: number;
 }
 
-interface GraphQLResponse {
-  data?: {
-    viewer?: {
-      accounts?: Array<{
-        requests?: Array<{
-          count: number;
-          sum?: {
-            cost?: number;
-            tokensIn?: number;
-            tokensOut?: number;
-          };
-        }>;
-      }>;
-    };
+/**
+ * REST API response from:
+ *   GET /accounts/{account_id}/ai-gateway/gateways/{gateway_id}/logs
+ *
+ * Each log entry has `cost`, `tokens_in`, `tokens_out`.
+ * `result_info` carries aggregate counters across the full result set.
+ */
+interface LogEntry {
+  id: string;
+  cost: number;
+  tokens_in: number;
+  tokens_out: number;
+  success: boolean;
+  cached: boolean;
+  model: string;
+  provider: string;
+  created_at: string;
+}
+
+interface LogsResponse {
+  result: LogEntry[];
+  result_info: {
+    count: number;
+    total_count: number;
+    page: number;
+    per_page: number;
   };
+  success: boolean;
   errors?: Array<{ message: string }>;
 }
 
 /**
- * Fetch real cost data from Cloudflare AI Gateway via GraphQL analytics API.
+ * Fetch real cost data from Cloudflare AI Gateway via the REST logs API.
  *
  * Requires:
  *  - CLOUDFLARE_API_TOKEN (standard Cloudflare API token with AI Gateway > Read)
  *  - CLOUDFLARE_AI_GATEWAY_ACCOUNT_ID
  *  - CLOUDFLARE_AI_GATEWAY_ID
  *
- * @param env  Worker environment bindings
- * @param since  Optional start date (defaults to 24 hours ago)
- * @returns Aggregated cost data, or null if unavailable
+ * Fetches the last 100 log entries (or up to `limit`) and sums cost/token fields
+ * from the per-request data returned by the API.
+ *
+ * @param env   Worker environment bindings
+ * @param limit Max log entries to aggregate (default 100)
+ * @returns Aggregated cost data, or null if unavailable / not configured
  */
 export async function fetchGatewayCosts(
   env: Env,
-  since?: Date,
+  limit = 100,
 ): Promise<GatewayCosts | null> {
   const token = env.CLOUDFLARE_API_TOKEN;
   const accountId = env.CLOUDFLARE_AI_GATEWAY_ACCOUNT_ID;
@@ -49,71 +65,46 @@ export async function fetchGatewayCosts(
     return null;
   }
 
-  const start = since ?? new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const end = new Date();
-
-  const query = `
-    query GatewayCosts($accountTag: String!, $filter: AccountAiGatewayRequestsAdaptiveGroupsFilter_InputObject!) {
-      viewer {
-        accounts(filter: { accountTag: $accountTag }) {
-          requests: aiGatewayRequestsAdaptiveGroups(
-            limit: 1
-            filter: $filter
-          ) {
-            count
-            sum {
-              cost
-              tokensIn
-              tokensOut
-            }
-          }
-        }
-      }
-    }
-  `;
-
-  const variables = {
-    accountTag: accountId,
-    filter: {
-      datetimeHour_geq: start.toISOString(),
-      datetimeHour_leq: end.toISOString(),
-      gateway: gatewayId,
-    },
-  };
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${gatewayId}/logs?per_page=${limit}&order_by=created_at&order_by_direction=desc`;
 
   try {
-    const response = await fetch("https://api.cloudflare.com/client/v4/graphql", {
-      method: "POST",
+    const response = await fetch(url, {
       headers: {
-        "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ query, variables }),
     });
 
     if (!response.ok) {
-      console.warn(`[CF Analytics] GraphQL request failed: ${response.status}`);
+      const text = await response.text().catch(() => "");
+      console.warn(`[CF Analytics] REST request failed (${response.status}): ${text.slice(0, 200)}`);
       return null;
     }
 
-    const result = (await response.json()) as GraphQLResponse;
+    const data = (await response.json()) as LogsResponse;
 
-    if (result.errors?.length) {
-      console.warn(`[CF Analytics] GraphQL errors: ${result.errors.map((e) => e.message).join(", ")}`);
+    if (!data.success || data.errors?.length) {
+      console.warn(
+        `[CF Analytics] API errors: ${data.errors?.map((e) => e.message).join(", ") ?? "unknown"}`,
+      );
       return null;
     }
 
-    const bucket = result.data?.viewer?.accounts?.[0]?.requests?.[0];
-    if (!bucket) {
-      // No data for the period — return zeroes rather than null
-      return { total_cost: 0, total_requests: 0, tokens_in: 0, tokens_out: 0 };
+    // Aggregate cost and tokens from individual log entries
+    let totalCost = 0;
+    let totalTokensIn = 0;
+    let totalTokensOut = 0;
+
+    for (const entry of data.result) {
+      totalCost += entry.cost ?? 0;
+      totalTokensIn += entry.tokens_in ?? 0;
+      totalTokensOut += entry.tokens_out ?? 0;
     }
 
     return {
-      total_cost: bucket.sum?.cost ?? 0,
-      total_requests: bucket.count,
-      tokens_in: bucket.sum?.tokensIn ?? 0,
-      tokens_out: bucket.sum?.tokensOut ?? 0,
+      total_cost: totalCost,
+      total_requests: data.result_info?.total_count ?? data.result.length,
+      tokens_in: totalTokensIn,
+      tokens_out: totalTokensOut,
     };
   } catch (error) {
     console.warn(`[CF Analytics] Failed to fetch gateway costs: ${String(error)}`);
