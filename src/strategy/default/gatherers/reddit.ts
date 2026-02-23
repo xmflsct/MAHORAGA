@@ -1,13 +1,143 @@
 /**
  * Reddit gatherer — sentiment from r/wallstreetbets, r/stocks, r/investing, r/options.
+ *
+ * Subreddit responses are cached in KV for 10 minutes to minimize API calls
+ * and avoid Reddit's aggressive rate limiting (429s) on datacenter IPs.
+ * Includes retry with backoff for transient failures.
  */
 
+import type { Env } from "../../../env.d";
 import type { Signal } from "../../../core/types";
 import { createAlpacaProviders } from "../../../providers/alpaca";
 import type { Gatherer, StrategyContext } from "../../types";
 import { SOURCE_CONFIG } from "../config";
 import { calculateTimeDecay, detectSentiment, getEngagementMultiplier, getFlairMultiplier } from "../helpers/sentiment";
 import { extractTickers, tickerCache } from "../helpers/ticker";
+
+// ---------------------------------------------------------------------------
+// Cache & retry config
+// ---------------------------------------------------------------------------
+
+/** How long to cache subreddit data in KV (seconds) */
+const CACHE_TTL = 600; // 10 minutes
+
+/** Max retries for a single subreddit fetch */
+const MAX_RETRIES = 2;
+
+/** Base delay for exponential backoff (ms) */
+const BACKOFF_BASE_MS = 2000;
+
+// ---------------------------------------------------------------------------
+// Subreddit fetching with KV cache + retry
+// ---------------------------------------------------------------------------
+
+interface RedditPost {
+  title?: string;
+  selftext?: string;
+  created_utc?: number;
+  ups?: number;
+  num_comments?: number;
+  link_flair_text?: string;
+}
+
+interface RedditListingResponse {
+  data?: {
+    children?: Array<{ data: RedditPost }>;
+  };
+}
+
+/**
+ * Fetch hot posts from a subreddit with KV caching and retry logic.
+ */
+async function fetchSubredditPosts(
+  sub: string,
+  env: Env,
+  log: StrategyContext["log"],
+  sleep: StrategyContext["sleep"]
+): Promise<RedditPost[]> {
+  const cacheKey = `reddit:sub:${sub}`;
+
+  // Check KV cache first
+  const cached = await env.CACHE.get(cacheKey, "json");
+  if (cached) {
+    log("Reddit", "cache_hit", { subreddit: sub });
+    return cached as RedditPost[];
+  }
+
+  // Fetch with retry + backoff
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(`https://www.reddit.com/r/${sub}/hot.json?limit=25&raw_json=1`, {
+        headers: {
+          "User-Agent": "web:mahoraga:v2.0 (by /u/mahoraga_bot)",
+          Accept: "application/json",
+        },
+      });
+
+      if (res.status === 429) {
+        const retryAfter = res.headers.get("Retry-After");
+        const waitMs = retryAfter
+          ? parseInt(retryAfter, 10) * 1000
+          : BACKOFF_BASE_MS * Math.pow(2, attempt);
+
+        log("Reddit", "rate_limited", {
+          subreddit: sub,
+          attempt: attempt + 1,
+          waitMs,
+          retryAfter,
+        });
+
+        if (attempt < MAX_RETRIES) {
+          await sleep(waitMs);
+          continue;
+        }
+        return [];
+      }
+
+      if (!res.ok) {
+        log("Reddit", "fetch_error", {
+          subreddit: sub,
+          status: res.status,
+          attempt: attempt + 1,
+        });
+        return [];
+      }
+
+      const data = (await res.json()) as RedditListingResponse;
+      const posts = data.data?.children?.map((c) => c.data) || [];
+
+      // Cache in KV
+      await env.CACHE.put(cacheKey, JSON.stringify(posts), {
+        expirationTtl: CACHE_TTL,
+      });
+
+      log("Reddit", "fetched", {
+        subreddit: sub,
+        postCount: posts.length,
+      });
+
+      return posts;
+    } catch (error) {
+      log("Reddit", "fetch_exception", {
+        subreddit: sub,
+        attempt: attempt + 1,
+        error: String(error),
+      });
+
+      if (attempt < MAX_RETRIES) {
+        await sleep(BACKOFF_BASE_MS * Math.pow(2, attempt));
+        continue;
+      }
+      return [];
+    }
+  }
+
+  return [];
+}
+
+// ---------------------------------------------------------------------------
+// Main gatherer
+// ---------------------------------------------------------------------------
 
 async function gatherReddit(ctx: StrategyContext): Promise<Signal[]> {
   const subreddits = ["wallstreetbets", "stocks", "investing", "options"];
@@ -31,25 +161,7 @@ async function gatherReddit(ctx: StrategyContext): Promise<Signal[]> {
     const sourceWeight = SOURCE_CONFIG.weights[`reddit_${sub}` as keyof typeof SOURCE_CONFIG.weights] || 0.7;
 
     try {
-      const res = await fetch(`https://www.reddit.com/r/${sub}/hot.json?limit=25`, {
-        headers: { "User-Agent": "Mahoraga/2.0" },
-      });
-      if (!res.ok) continue;
-      const data = (await res.json()) as {
-        data?: {
-          children?: Array<{
-            data: {
-              title?: string;
-              selftext?: string;
-              created_utc?: number;
-              ups?: number;
-              num_comments?: number;
-              link_flair_text?: string;
-            };
-          }>;
-        };
-      };
-      const posts = data.data?.children?.map((c) => c.data) || [];
+      const posts = await fetchSubredditPosts(sub, ctx.env, ctx.log, ctx.sleep);
 
       for (const post of posts) {
         const text = `${post.title || ""} ${post.selftext || ""}`;
@@ -96,7 +208,8 @@ async function gatherReddit(ctx: StrategyContext): Promise<Signal[]> {
         }
       }
 
-      await ctx.sleep(1000);
+      // Stagger requests to avoid bursting (only matters for cache misses)
+      await ctx.sleep(2000);
     } catch (error) {
       ctx.log("Reddit", "subreddit_error", { subreddit: sub, error: String(error) });
     }
