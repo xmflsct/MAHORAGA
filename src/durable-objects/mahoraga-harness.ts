@@ -22,6 +22,7 @@ import type {
 import type { Env } from "../env.d";
 import { getDefaultPolicyConfig } from "../policy/config";
 import { createAlpacaProviders } from "../providers/alpaca";
+import { fetchGatewayCosts } from "../providers/cloudflare-analytics";
 import { createLLMProvider } from "../providers/llm/factory";
 import type { Account, LLMProvider, MarketClock, Position } from "../providers/types";
 import type { AgentConfig } from "../schemas/agent-config";
@@ -1109,7 +1110,7 @@ export class MahoragaHarness extends DurableObject<Env> {
         case "logs":
           return this.handleGetLogs(url);
         case "costs":
-          return this.jsonResponse({ costs: this.state.costTracker });
+          return this.handleGetCosts();
         case "signals":
           return this.jsonResponse({ signals: this.state.signalCache });
         case "history":
@@ -1172,7 +1173,7 @@ export class MahoragaHarness extends DurableObject<Env> {
         config: this.state.config,
         signals: this.state.signalCache,
         logs: this.state.logs.slice(-100),
-        costs: this.state.costTracker,
+        costs: { estimated: this.state.costTracker, gateway: await fetchGatewayCosts(this.env) },
         lastAnalystRun: this.state.lastAnalystRun,
         lastResearchRun: this.state.lastResearchRun,
         lastPositionResearchRun: this.state.lastPositionResearchRun,
@@ -1291,12 +1292,28 @@ export class MahoragaHarness extends DurableObject<Env> {
     console.log(`[${entry.timestamp}] [${agent}] ${action}`, JSON.stringify(details));
   }
 
+  private async handleGetCosts(): Promise<Response> {
+    const gateway = await fetchGatewayCosts(this.env);
+    return this.jsonResponse({ costs: { estimated: this.state.costTracker, gateway } });
+  }
+
   public trackLLMCost(model: string, tokensIn: number, tokensOut: number): number {
+    // Prices per 1M tokens (input / output) — kept as fallback when CF Gateway analytics unavailable
     const pricing: Record<string, { input: number; output: number }> = {
+      // OpenAI
       "gpt-4o": { input: 2.5, output: 10 },
       "gpt-4o-mini": { input: 0.15, output: 0.6 },
+      // Google AI Studio
+      "gemini-2.5-flash-lite": { input: 0.10, output: 0.40 },
+      "gemini-2.0-flash": { input: 0.10, output: 0.40 },
+      "gemini-2.5-flash": { input: 0.30, output: 2.50 },
+      "gemini-2.5-pro": { input: 1.25, output: 10.0 },
+      "gemini-3-pro-preview": { input: 2.0, output: 12.0 },
     };
-    const rates = pricing[model] ?? pricing["gpt-4o"]!;
+
+    // Strip provider prefix (e.g. "google-ai-studio/gemini-2.5-flash-lite" → "gemini-2.5-flash-lite")
+    const modelId = model.includes("/") ? model.split("/").slice(1).join("/") : model;
+    const rates = pricing[modelId] ?? pricing[model] ?? pricing["gpt-4o"]!;
     const cost = (tokensIn * rates.input + tokensOut * rates.output) / 1_000_000;
 
     this.state.costTracker.total_usd += cost;

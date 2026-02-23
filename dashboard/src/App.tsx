@@ -9,7 +9,7 @@ import { SetupWizard } from './components/SetupWizard'
 import { LineChart, Sparkline } from './components/LineChart'
 import { NotificationBell } from './components/NotificationBell'
 import { Tooltip, TooltipContent } from './components/Tooltip'
-import type { Status, Config, LogEntry, Signal, Position, SignalResearch, PortfolioSnapshot } from './types'
+import type { Status, Config, LogEntry, Signal, Position, SignalResearch, PortfolioSnapshot, CostData } from './types'
 
 const API_BASE = '/agent'
 
@@ -220,7 +220,15 @@ export default function App() {
   const positions = status?.positions || []
   const signals = status?.signals || []
   const logs = status?.logs || []
-  const costs = status?.costs || { total_usd: 0, calls: 0, tokens_in: 0, tokens_out: 0 }
+  const costData: CostData = status?.costs || { estimated: { total_usd: 0, calls: 0, tokens_in: 0, tokens_out: 0 }, gateway: null }
+  const gw = costData.gateway
+  const est = costData.estimated
+  // Prefer real gateway cost, fall back to local estimate
+  const totalCost = gw ? gw.total_cost : est.total_usd
+  const totalCalls = gw ? gw.total_requests : est.calls
+  const tokensIn = gw ? gw.tokens_in : est.tokens_in
+  const tokensOut = gw ? gw.tokens_out : est.tokens_out
+  const costSource = gw ? 'GATEWAY' : 'ESTIMATED'
   const config = status?.config
   const isMarketOpen = status?.clock?.is_open ?? false
 
@@ -372,8 +380,8 @@ export default function App() {
           <div className="flex items-center gap-3 md:gap-6 flex-wrap">
             <StatusBar
               items={[
-                { label: 'LLM COST', value: `$${costs.total_usd.toFixed(4)}`, status: costs.total_usd > 1 ? 'warning' : 'active' },
-                { label: 'API CALLS', value: costs.calls.toString() },
+                { label: 'LLM COST', value: `$${totalCost.toFixed(4)}`, status: totalCost > 1 ? 'warning' : 'active' },
+                { label: 'API CALLS', value: totalCalls.toString() },
               ]}
             />
             <NotificationBell 
@@ -519,15 +527,15 @@ export default function App() {
           </div>
 
           <div className="col-span-4 md:col-span-8 lg:col-span-4">
-            <Panel title="LLM COSTS" className="h-full">
+            <Panel title="LLM COSTS" titleRight={<span className="text-[9px] font-mono text-hud-text-dim">{costSource}</span>} className="h-full">
               <div className="grid grid-cols-2 gap-4">
-                <Metric label="TOTAL SPENT" value={`$${costs.total_usd.toFixed(4)}`} size="lg" />
-                <Metric label="API CALLS" value={costs.calls.toString()} size="lg" />
-                <MetricInline label="TOKENS IN" value={costs.tokens_in.toLocaleString()} />
-                <MetricInline label="TOKENS OUT" value={costs.tokens_out.toLocaleString()} />
+                <Metric label="TOTAL SPENT" value={`$${totalCost.toFixed(4)}`} size="lg" />
+                <Metric label="API CALLS" value={totalCalls.toString()} size="lg" />
+                <MetricInline label="TOKENS IN" value={tokensIn.toLocaleString()} />
+                <MetricInline label="TOKENS OUT" value={tokensOut.toLocaleString()} />
                 <MetricInline 
                   label="AVG COST/CALL" 
-                  value={costs.calls > 0 ? `$${(costs.total_usd / costs.calls).toFixed(6)}` : '$0'} 
+                  value={totalCalls > 0 ? `$${(totalCost / totalCalls).toFixed(6)}` : '$0'} 
                 />
                 <MetricInline label="MODEL" value={config?.llm_model || 'gpt-4o-mini'} />
               </div>

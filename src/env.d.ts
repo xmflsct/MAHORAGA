@@ -17,6 +17,7 @@ export interface Env {
   CLOUDFLARE_AI_GATEWAY_ACCOUNT_ID?: string;
   CLOUDFLARE_AI_GATEWAY_ID?: string;
   CLOUDFLARE_AI_GATEWAY_TOKEN?: string;
+  CLOUDFLARE_API_TOKEN?: string;
   LLM_PROVIDER?: "openai-raw" | "ai-sdk" | "cloudflare-gateway";
   LLM_MODEL?: string;
   TWITTER_BEARER_TOKEN?: string;

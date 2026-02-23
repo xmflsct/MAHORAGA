@@ -50,6 +50,18 @@ export interface CostTracker {
   tokens_out: number
 }
 
+export interface GatewayCosts {
+  total_cost: number
+  total_requests: number
+  tokens_in: number
+  tokens_out: number
+}
+
+export interface CostData {
+  estimated: CostTracker
+  gateway: GatewayCosts | null
+}
+
 export interface Config {
   data_poll_interval_ms: number
   analyst_interval_ms: number
@@ -198,7 +210,7 @@ export interface Status {
   config: Config
   signals: Signal[]
   logs: LogEntry[]
-  costs: CostTracker
+  costs: CostData
   lastAnalystRun: number
   lastResearchRun: number
   signalResearch: Record<string, SignalResearch>
