@@ -7,6 +7,7 @@
  */
 
 import type { Position, ResearchResult } from "../../../core/types";
+import { safeParseLLMJson } from "../../../lib/json-repair";
 import { createAlpacaProviders } from "../../../providers/alpaca";
 import type { StrategyContext } from "../../types";
 
@@ -65,7 +66,7 @@ JSON response:
         },
         { role: "user", content: prompt },
       ],
-      max_tokens: 250,
+      max_tokens: 2048,
       temperature: 0.3,
       response_format: { type: "json_object" },
     });
@@ -76,14 +77,14 @@ JSON response:
     }
 
     const content = response.content || "{}";
-    const analysis = JSON.parse(content.replace(/```json\n?|```/g, "").trim()) as {
+    const analysis = safeParseLLMJson<{
       verdict: "BUY" | "SKIP" | "WAIT";
       confidence: number;
       entry_quality: "excellent" | "good" | "fair" | "poor";
       reasoning: string;
       red_flags: string[];
       catalysts: string[];
-    };
+    }>(content);
 
     const result: ResearchResult = {
       symbol,

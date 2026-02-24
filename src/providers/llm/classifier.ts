@@ -1,3 +1,4 @@
+import { safeParseLLMJson } from "../../lib/json-repair";
 import { nowISO } from "../../lib/utils";
 import type { EventType } from "../../mcp/types";
 import type { LLMProvider } from "../types";
@@ -43,17 +44,17 @@ export async function classifyEvent(
       },
     ],
     temperature: 0.3,
-    max_tokens: 500,
+    max_tokens: 2048,
     response_format: { type: "json_object" },
   });
 
   try {
-    const parsed = JSON.parse(result.content) as {
+    const parsed = safeParseLLMJson<{
       event_type: string;
       symbols: string[];
       summary: string;
       confidence: number;
-    };
+    }>(result.content);
 
     const validEventTypes: EventType[] = [
       "earnings_beat",

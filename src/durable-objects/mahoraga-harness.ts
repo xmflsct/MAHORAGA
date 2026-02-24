@@ -20,6 +20,7 @@ import type {
   SocialSnapshotCacheEntry,
 } from "../core/types";
 import type { Env } from "../env.d";
+import { safeParseLLMJson } from "../lib/json-repair";
 import { getDefaultPolicyConfig } from "../policy/config";
 import { createAlpacaProviders } from "../providers/alpaca";
 import { fetchGatewayCosts } from "../providers/cloudflare-analytics";
@@ -569,14 +570,14 @@ export class MahoragaHarness extends DurableObject<Env> {
       }
 
       const content = response.content || "{}";
-      const analysis = JSON.parse(content.replace(/```json\n?|```/g, "").trim()) as {
+      const analysis = safeParseLLMJson<{
         verdict: "BUY" | "SKIP" | "WAIT";
         confidence: number;
         entry_quality: "excellent" | "good" | "fair" | "poor";
         reasoning: string;
         red_flags: string[];
         catalysts: string[];
-      };
+      }>(content);
 
       const result: ResearchResult = {
         symbol,
@@ -645,8 +646,8 @@ export class MahoragaHarness extends DurableObject<Env> {
       }
 
       const content = response.content || "{}";
-      const analysis = JSON.parse(content.replace(/```json\n?|```/g, "").trim());
-      this.state.positionResearch[position.symbol] = { ...analysis, timestamp: Date.now() };
+      const analysis = safeParseLLMJson<Record<string, unknown>>(content);
+      this.state.positionResearch[position.symbol] = { ...analysis, timestamp: Date.now() } as Record<string, unknown> & { timestamp: number };
       this.log("PositionResearch", "position_analyzed", {
         symbol: position.symbol,
         recommendation: analysis.recommendation,
@@ -700,7 +701,7 @@ export class MahoragaHarness extends DurableObject<Env> {
       }
 
       const content = response.content || "{}";
-      const analysis = JSON.parse(content.replace(/```json\n?|```/g, "").trim()) as {
+      const analysis = safeParseLLMJson<{
         recommendations: Array<{
           action: "BUY" | "SELL" | "HOLD";
           symbol: string;
@@ -710,7 +711,7 @@ export class MahoragaHarness extends DurableObject<Env> {
         }>;
         market_summary: string;
         high_conviction_plays?: string[];
-      };
+      }>(content);
 
       this.log("Analyst", "analysis_complete", {
         recommendations: analysis.recommendations?.length || 0,

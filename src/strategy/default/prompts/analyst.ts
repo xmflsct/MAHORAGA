@@ -99,6 +99,6 @@ Response format:
 }`,
     user,
     model: ctx.config.llm_analyst_model,
-    maxTokens: 800,
+    maxTokens: 4096,
   };
 };

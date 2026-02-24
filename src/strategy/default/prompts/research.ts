@@ -37,7 +37,7 @@ JSON response:
   "red_flags": ["any concerns"],
   "catalysts": ["positive factors"]
 }`,
-  maxTokens: 250,
+  maxTokens: 2048,
 });
 
 /**
@@ -64,5 +64,5 @@ Provide a brief risk assessment and recommendation (HOLD, SELL, or ADD). JSON fo
   "reasoning": "brief reason",
   "key_factors": ["factor1", "factor2"]
 }`,
-  maxTokens: 200,
+  maxTokens: 2048,
 });
