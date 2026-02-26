@@ -1174,7 +1174,7 @@ export class MahoragaHarness extends DurableObject<Env> {
         config: this.state.config,
         signals: this.state.signalCache,
         logs: this.state.logs.slice(-100),
-        costs: { estimated: this.state.costTracker, gateway: await fetchGatewayCosts(this.env) },
+        costs: { estimated: this.state.costTracker, gateway: null },
         lastAnalystRun: this.state.lastAnalystRun,
         lastResearchRun: this.state.lastResearchRun,
         lastPositionResearchRun: this.state.lastPositionResearchRun,

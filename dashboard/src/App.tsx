@@ -144,6 +144,9 @@ export default function App() {
   const [time, setTime] = useState(new Date())
   const [portfolioHistory, setPortfolioHistory] = useState<PortfolioSnapshot[]>([])
   const [portfolioPeriod, setPortfolioPeriod] = useState<'1D' | '1W' | '1M'>('1D')
+  const [costSource, setCostSource] = useState<'estimated' | 'gateway'>('estimated')
+  const [gatewayCosts, setGatewayCosts] = useState<CostData['gateway']>(null)
+  const [gatewayCostsLoading, setGatewayCostsLoading] = useState(false)
 
   useEffect(() => {
     const checkSetup = async () => {
@@ -189,6 +192,30 @@ export default function App() {
     }
   }, [setupChecked, showSetup])
 
+  // Fetch gateway costs asynchronously (separate from status)
+  useEffect(() => {
+    if (!setupChecked || showSetup) return
+
+    const fetchGatewayCosts = async () => {
+      setGatewayCostsLoading(true)
+      try {
+        const res = await authFetch(`${API_BASE}/costs`)
+        const data = await res.json()
+        if (data.costs?.gateway) {
+          setGatewayCosts(data.costs.gateway)
+        }
+      } catch {
+        // Gateway costs unavailable — keep using estimated
+      } finally {
+        setGatewayCostsLoading(false)
+      }
+    }
+
+    fetchGatewayCosts()
+    const costsInterval = setInterval(fetchGatewayCosts, 60000) // Refresh every 60s
+    return () => clearInterval(costsInterval)
+  }, [setupChecked, showSetup])
+
   useEffect(() => {
     if (!setupChecked || showSetup) return
 
@@ -221,14 +248,14 @@ export default function App() {
   const signals = status?.signals || []
   const logs = status?.logs || []
   const costData: CostData = status?.costs || { estimated: { total_usd: 0, calls: 0, tokens_in: 0, tokens_out: 0 }, gateway: null }
-  const gw = costData.gateway
   const est = costData.estimated
-  // Prefer real gateway cost, fall back to local estimate
-  const totalCost = gw ? gw.total_cost : est.total_usd
-  const totalCalls = gw ? gw.total_requests : est.calls
-  const tokensIn = gw ? gw.tokens_in : est.tokens_in
-  const tokensOut = gw ? gw.tokens_out : est.tokens_out
-  const costSource = gw ? 'GATEWAY' : 'ESTIMATED'
+  const gw = gatewayCosts
+  const useGateway = costSource === 'gateway' && gw !== null
+  const totalCost = useGateway ? gw.total_cost : est.total_usd
+  const totalCalls = useGateway ? gw.total_requests : est.calls
+  const tokensIn = useGateway ? gw.tokens_in : est.tokens_in
+  const tokensOut = useGateway ? gw.tokens_out : est.tokens_out
+  const costSourceLabel = useGateway ? 'GATEWAY' : 'ESTIMATED'
   const config = status?.config
   const isMarketOpen = status?.clock?.is_open ?? false
 
@@ -527,7 +554,20 @@ export default function App() {
           </div>
 
           <div className="col-span-4 md:col-span-8 lg:col-span-4">
-            <Panel title="LLM COSTS" titleRight={<span className="text-[9px] font-mono text-hud-text-dim">{costSource}</span>} className="h-full">
+            <Panel title="LLM COSTS" titleRight={
+              <button
+                type="button"
+                onClick={() => setCostSource(prev => prev === 'estimated' ? 'gateway' : 'estimated')}
+                className={clsx(
+                  'text-[9px] font-mono transition-colors cursor-pointer border-b border-dotted',
+                  useGateway ? 'text-hud-primary border-hud-primary/50' : 'text-hud-text-dim border-hud-text-dim/50',
+                  'hover:text-hud-primary hover:border-hud-primary'
+                )}
+                title={`Click to switch to ${costSource === 'estimated' ? 'GATEWAY (Cloudflare AI API)' : 'ESTIMATED (local)'} costs`}
+              >
+                {gatewayCostsLoading && costSource === 'gateway' ? 'LOADING…' : costSourceLabel}
+              </button>
+            } className="h-full">
               <div className="grid grid-cols-2 gap-4">
                 <Metric label="TOTAL SPENT" value={`$${totalCost.toFixed(4)}`} size="lg" />
                 <Metric label="API CALLS" value={totalCalls.toString()} size="lg" />
@@ -539,6 +579,11 @@ export default function App() {
                 />
                 <MetricInline label="MODEL" value={config?.llm_model || 'gpt-4o-mini'} />
               </div>
+              {costSource === 'gateway' && !gw && !gatewayCostsLoading && (
+                <div className="mt-2 text-[10px] text-hud-text-dim text-center">
+                  Gateway data unavailable — showing estimated
+                </div>
+              )}
             </Panel>
           </div>
 
